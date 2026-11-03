@@ -1,6 +1,15 @@
-# Wink
+<p align="center">
+  <img src="Resources/Wink.png" width="96" height="96" alt="Wink app icon">
+</p>
 
-<img src="Resources/Wink.png" width="96" height="96" alt="Wink app icon">
+<h1 align="center">Wink</h1>
+
+<p align="center">
+  <a href="https://github.com/Coderbeep/wink/actions/workflows/checks.yml"><img src="https://github.com/Coderbeep/wink/actions/workflows/checks.yml/badge.svg?branch=main" alt="Checks"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-B86F70" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/macOS-13%2B-282A2E?logo=apple&amp;logoColor=white" alt="macOS 13 or later">
+  <img src="https://img.shields.io/badge/architecture-Apple%20Silicon-282A2E" alt="Apple Silicon">
+</p>
 
 A small macOS menu-bar companion for Codex desktop. See which chats are working, have an unread answer, or need your attention without keeping Codex in front.
 
