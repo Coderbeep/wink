@@ -41,7 +41,7 @@ Canonical turn order is `turnHistory.history.islands[].entries[].value`. Latest 
 
 ## Active decisions
 
-- **D-001 — Native status item.** One executable, no normal window or Dock icon, no automatic login registration.
+- **D-001 — Native status item.** One executable, no normal window or Dock icon. Login registration is opt-in (D-012).
 - **D-002/D-003 — Observe the existing desktop connection.** A separate app-server instance does not establish desktop runtime state. Connect to `CODEX_HOME/ipc/ipc.sock` (default `~/.codex`) using read-only owner discovery and following. Lock filenames are discovery hints, never proof of status.
 - **D-004/D-005 — Match native status semantics.** Use default adaptive colors and independent shapes/text. Derive input from native requests and unanswered questions even when runtime flags are empty. Structural question/reply/error changes resnapshot; ordinary streamed text does not.
 - **D-006/D-007 — Bound missing-event recovery.** Global read notifications may be omitted; final patches may fail without a retry. Reconcile non-idle chats every five seconds and idle chats every thirty seconds. Retry owner discovery and prune vanished, unowned, unvalidated candidates. Release idle subscriptions after ten seconds.
@@ -51,10 +51,11 @@ Canonical turn order is `turnHistory.history.islands[].entries[].value`. Latest 
 - **D-009 — Wink branding.** Public app/executable/menu labels use Wink. The existing `local.codexdot` bundle identifier and internal protocol labels remain for upgrade compatibility.
 - **D-011 — App icon.** User selected concept A: a rose open-eye dot and closed-eye curve on the charcoal tile, matching obim’s palette and minimal geometry. Keep the approved SVG and transparent 1024-pixel PNG master, generate the standard 16–1024 pixel ICNS representations, and copy the icon before signing. Packaging validates the icon reference and bytes. The light SVG remains source artwork; the bundled default is the approved dark tile.
 - **D-010 — Release boundaries.** Generated app bundles and archives stay under ignored `build/` and `dist/`. CI runs isolated checks and uploads an artifact; it does not publish a release. The initial public changelog is a baseline, not a reconstructed public release history.
+- **D-012 — Launch at Login (2026-11-03, implemented).** User requested an optional startup setting. Use macOS 13+ `SMAppService.mainApp`, with no helper, launch-agent file or saved preference. The menu reads the system status whenever rebuilt; enabled is checked, approval pending is mixed with an explicit label and Login Settings action. Toggling enabled or pending off unregisters it; toggling off on registers it. Report errors without an optimistic checkmark. Never register during app launch. Validation: offscreen status, per-state registration/removal and error-propagation checks pass without changing login settings. An isolated, ad-hoc signed temporary app also completed actual registration (`notFound → enabled`) and removal (`enabled → notRegistered`), then was deleted. No real Wink startup setting was changed. A real logout/login cycle remains a manual check.
 
 ## Validation and known limits
 
-Run `./scripts/check.sh` for Core/Input assertions, offscreen animation checks, IPC discovery/recovery, read/input transitions, idle races, missing notifications, revision resets, manual dismissal, and adversarial owner/isolation cases. Fixtures use temporary sockets and `CODEX_HOME`; they do not contact real chats.
+Run `./scripts/check.sh` for Core/Input assertions, offscreen animation and login-setting checks, IPC discovery/recovery, read/input transitions, idle races, missing notifications, revision resets, manual dismissal, and adversarial owner/isolation cases. Fixtures use temporary sockets and `CODEX_HOME`; they do not contact real chats.
 
 Local observations also verified explicit start/completion transitions and matching live projections across multiple root chats. The original user confirmed the visible counts. Native click-through and the final live menu-bar animation have not been automated. The build targets macOS 13+ on Apple Silicon; Intel, notarization and other Codex versions are not validated.
 

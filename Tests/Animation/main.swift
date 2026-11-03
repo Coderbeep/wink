@@ -67,4 +67,23 @@ if let output = CommandLine.arguments.dropFirst().first {
     let bitmap = NSBitmapImageRep(data: preview.tiffRepresentation!)!
     try bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: output))
 }
+for (status, state) in [(SMAppService.Status.notRegistered, NSControl.StateValue.off), (.enabled, .on), (.requiresApproval, .mixed), (.notFound, .off)] {
+    let item = launchAtLoginMenuItem(status: status)
+    check(item.state == state && item.isEnabled, "login setting reflects the system status")
+    check(item.title.contains("Needs Approval") == (status == .requiresApproval), "approval is explicit, never shown as enabled")
+}
+for status in [SMAppService.Status.notRegistered, .enabled, .requiresApproval, .notFound] {
+    var registrations = 0, removals = 0
+    try changeLaunchAtLogin(status: status, register: { registrations += 1 }, unregister: { removals += 1 })
+    let removing = status == .enabled || status == .requiresApproval
+    check(registrations == (removing ? 0 : 1) && removals == (removing ? 1 : 0), "each system state selects exactly one correct login operation")
+}
+let denied = NSError(domain: "WinkLoginTest", code: 42)
+for status in [SMAppService.Status.notRegistered, .enabled, .requiresApproval] {
+    do {
+        try changeLaunchAtLogin(status: status, register: { throw denied }, unregister: { throw denied })
+        fatalError("login operation errors must reach the UI")
+    } catch { check((error as NSError) == denied, "the original login error is preserved") }
+}
+print("Launch at Login checks passed: system states, pending approval, register/unregister, errors; no login settings changed")
 print("Working rotation checks passed: centered, click-through, continuous, stable counts, stop/resume, Reduce Motion")

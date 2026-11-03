@@ -1,5 +1,6 @@
 import AppKit
 import QuartzCore
+import ServiceManagement
 
 private func adaptiveColor(_ light: UInt32, _ dark: UInt32) -> NSColor {
     NSColor(name: nil) { appearance in
@@ -119,6 +120,25 @@ private func statusTitle(_ snapshot: DotSnapshot) -> NSAttributedString {
     return title
 }
 
+private func launchAtLoginMenuItem(status: SMAppService.Status) -> NSMenuItem {
+    let item = NSMenuItem(title: "Launch at Login", action: nil, keyEquivalent: "")
+    switch status {
+    case .enabled: item.state = .on
+    case .requiresApproval:
+        item.state = .mixed
+        item.title = "Launch at Login (Needs Approval)"
+    case .notRegistered, .notFound: item.state = .off
+    @unknown default: item.isEnabled = false
+    }
+    return item
+}
+
+private func changeLaunchAtLogin(status: SMAppService.Status,
+                                register: () throws -> Void, unregister: () throws -> Void) throws {
+    if status == .enabled || status == .requiresApproval { try unregister() }
+    else { try register() }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
@@ -213,6 +233,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let clear = addAction("Clear completed", #selector(clearCompleted))
         clear.isEnabled = snapshot.connected && snapshot.sessions.contains { $0.phase == .ready }
         menu.addItem(.separator())
+        let loginStatus = SMAppService.mainApp.status
+        let loginItem = launchAtLoginMenuItem(status: loginStatus)
+        loginItem.target = self
+        loginItem.action = #selector(toggleLaunchAtLogin)
+        menu.addItem(loginItem)
+        if loginStatus == .requiresApproval { addAction("Open Login Settings…", #selector(openLoginSettings)) }
         addAction("Quit Wink", #selector(quit), key: "q")
     }
 
@@ -247,6 +273,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    @objc private func toggleLaunchAtLogin() {
+        let service = SMAppService.mainApp
+        do {
+            try changeLaunchAtLogin(status: service.status, register: { try service.register() }, unregister: { try service.unregister() })
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn’t Change Launch at Login"
+            alert.informativeText = error.localizedDescription
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
+        rebuildMenu()
+    }
+
+    @objc private func openLoginSettings() { SMAppService.openSystemSettingsLoginItems() }
     @objc private func clearCompleted() { monitor.clearCompleted() }
     @objc private func quit() { NSApplication.shared.terminate(nil) }
 }

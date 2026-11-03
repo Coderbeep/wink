@@ -23,7 +23,9 @@ cd wink
 open build/Wink.app
 ```
 
-You can also move `build/Wink.app` into Applications. Quit an existing Wink copy before replacing it. Wink has no Dock icon or normal window; use **Quit Wink** in its menu to stop it. It does not register itself to start at login.
+You can also move `build/Wink.app` into Applications. Quit an existing Wink copy before replacing it. Wink has no Dock icon or normal window; use **Quit Wink** in its menu to stop it.
+
+Choose **Launch at Login** in the menu to start Wink automatically when you sign in. This is off by default; its checkmark reflects macOS’s current setting. **Needs Approval** means you must allow it through **Open Login Settings…**. Toggle it off to remove the login registration. Keep Wink in a stable location, such as Applications, before enabling it.
 
 The build is **ad-hoc signed and not notarized**. A downloaded copy may be blocked by macOS. If you trust its source and integrity, follow Apple's per-app **Privacy & Security → Open Anyway** process; see [Safely open apps on your Mac](https://support.apple.com/en-us/102445). Do not disable Gatekeeper globally.
 
@@ -49,7 +51,7 @@ Each symbol has a count and a text label in the menu. Colors follow Codex's defa
 | Gray question circle | That chat's status is unavailable. |
 | `Wink ?` | The desktop connection or initial status discovery is incomplete. |
 
-The menu lists chat titles and provides **Open Codex**, **Clear completed**, and **Quit Wink**. **Clear completed** dismisses ready entries in Wink only; it never marks chats read in Codex. This local dismissal is held in memory and resets when Wink quits.
+The menu lists chat titles and provides **Open Codex**, **Clear completed**, **Launch at Login**, and **Quit Wink**. **Clear completed** dismisses ready entries in Wink only; it never marks chats read in Codex. This local dismissal is held in memory and resets when Wink quits.
 
 ## Tracking and privacy
 
@@ -73,7 +75,7 @@ A missed notification can take a reconciliation interval plus response time to r
 ./scripts/check.sh
 ```
 
-The full check builds Wink and runs state/parser assertions, offscreen animation and Reduce Motion checks, and isolated IPC fixtures covering discovery, read/input transitions, lost events, revision resets, owner changes, reconnects, and manual dismissal. Fixtures use temporary `CODEX_HOME` directories and do not contact real chats.
+The full check builds Wink and runs state/parser assertions, offscreen animation, Reduce Motion and login-setting state/error checks, and isolated IPC fixtures covering discovery, read/input transitions, lost events, revision resets, owner changes, reconnects, and manual dismissal. Fixtures use temporary `CODEX_HOME` directories and do not contact real chats.
 
 The approved icon artwork is in `Resources/Wink.svg`, with a 1024-pixel PNG master. After exporting artwork changes to `Resources/Wink.png`, run `./scripts/make-icon.sh` to regenerate the standard macOS icon sizes. Builds use the checked-in `Wink.icns`.
 

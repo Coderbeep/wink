@@ -8,6 +8,7 @@ Publication is pending. Earlier version numbers were local development builds, n
 
 ### Added
 
+- An opt-in **Launch at Login** menu setting, with macOS approval status and a link to Login Settings.
 - A custom Wink app icon using a minimal wink mark in charcoal and muted rose.
 - Native menu-bar counts for working chats, unread answers, input and approval requests, failures, and unavailable status.
 - Read-only observation of existing local Codex desktop chats, with automatic read-state reconciliation and a local **Clear completed** fallback.
