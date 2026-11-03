@@ -8,6 +8,7 @@ Publication is pending. Earlier version numbers were local development builds, n
 
 ### Added
 
+- A custom Wink app icon using a minimal wink mark in charcoal and muted rose.
 - Native menu-bar counts for working chats, unread answers, input and approval requests, failures, and unavailable status.
 - Read-only observation of existing local Codex desktop chats, with automatic read-state reconciliation and a local **Clear completed** fallback.
 - Recovery from missing events, failed discovery, revision resets, owner changes, and disconnects while preserving healthy chat counts.

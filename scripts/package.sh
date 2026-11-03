@@ -17,6 +17,11 @@ if not isinstance(version, str) or not version.strip():
     raise SystemExit("The bundle has no release version")
 if info.get("CFBundlePackageType") != "APPL":
     raise SystemExit("The bundle is not an application")
+if info.get("CFBundleIconFile") != "Wink.icns":
+    raise SystemExit("The application icon reference is missing")
+icon = app / "Contents/Resources/Wink.icns"
+if not icon.is_file() or icon.read_bytes() != (root / "Resources/Wink.icns").read_bytes() or icon.read_bytes()[:4] != b"icns":
+    raise SystemExit("The application icon is missing or differs from the source icon")
 exe = app / "Contents/MacOS/Wink"
 if not exe.is_file() or not os.access(exe, os.X_OK):
     raise SystemExit("The Wink executable is missing or not executable")
@@ -34,6 +39,8 @@ try:
             raise SystemExit("Packaged executable differs from the build")
         if zipped.read("Wink.app/Contents/Resources/LICENSE") != (root / "LICENSE").read_bytes():
             raise SystemExit("Packaged license differs from the source license")
+        if zipped.read("Wink.app/Contents/Resources/Wink.icns") != icon.read_bytes():
+            raise SystemExit("Packaged icon differs from the build")
         packed_info = plistlib.loads(zipped.read("Wink.app/Contents/Info.plist"))
         if packed_info != info:
             raise SystemExit("Packaged metadata differs from the build")

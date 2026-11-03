@@ -5,6 +5,7 @@
     <key>CFBundleIdentifier</key><string>local.codexdot</string>
     <key>CFBundleName</key><string>Wink</string>
     <key>CFBundleDisplayName</key><string>Wink</string>
+    <key>CFBundleIconFile</key><string>Wink.icns</string>
     <key>CFBundleExecutable</key><string>Wink</string>
     <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Coderbeep</string>
     <key>CFBundlePackageType</key><string>APPL</string>

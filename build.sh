@@ -12,6 +12,7 @@ xcrun swiftc -O -target arm64-apple-macosx13.0 \
 mv "$app_dir/Contents/MacOS/Wink.new" "$app_dir/Contents/MacOS/Wink"
 cp "$project_dir/Info.plist" "$app_dir/Contents/Info.plist"
 cp "$project_dir/LICENSE" "$app_dir/Contents/Resources/LICENSE"
+cp "$project_dir/Resources/Wink.icns" "$app_dir/Contents/Resources/Wink.icns"
 codesign --force --sign - "$app_dir"
 codesign --verify --strict "$app_dir"
 printf '%s\n' "$app_dir"

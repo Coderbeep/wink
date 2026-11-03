@@ -1,5 +1,7 @@
 # Wink
 
+<img src="Resources/Wink.png" width="96" height="96" alt="Wink app icon">
+
 A small macOS menu-bar companion for Codex desktop. See which chats are working, have an unread answer, or need your attention without keeping Codex in front.
 
 Wink is an independent project, not an official OpenAI app. It uses system frameworks only: one native executable, no helper process, account, API key, or package dependencies.
@@ -72,6 +74,8 @@ A missed notification can take a reconciliation interval plus response time to r
 ```
 
 The full check builds Wink and runs state/parser assertions, offscreen animation and Reduce Motion checks, and isolated IPC fixtures covering discovery, read/input transitions, lost events, revision resets, owner changes, reconnects, and manual dismissal. Fixtures use temporary `CODEX_HOME` directories and do not contact real chats.
+
+The approved icon artwork is in `Resources/Wink.svg`, with a 1024-pixel PNG master. After exporting artwork changes to `Resources/Wink.png`, run `./scripts/make-icon.sh` to regenerate the standard macOS icon sizes. Builds use the checked-in `Wink.icns`.
 
 For just the core assertions, run `./test.sh`. For a read-only live diagnostic:
 
