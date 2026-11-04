@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Delayed running counts when creating chats or starting another turn in an open chat, with bounded owner-discovery retries and subscriptions that release after the owner closes its view.
+
 ### Changed
 
 - Faster removal of read answers while Codex is in front, using globally capped read-confirmation checks that stop when unnecessary.

@@ -27,7 +27,7 @@ def main():
             ], check=True)
         manual = helpers["manual"]
         names = ["ipc_check", "input_state_check", "read_state_check", "idle_refresh_check",
-                 "reconciliation_check", "read_reconnect_check", "robustness_check", "optimization_check"]
+                 "reconciliation_check", "read_reconnect_check", "robustness_check", "optimization_check", "running_start_check"]
         cases = [(name, [sys.executable, str(root / "Tests" / (name + ".py")), str(executable)]) for name in names]
         cases += [
             ("read_latency", [sys.executable, str(root / "Tests/read_latency_check.py"), str(helpers["read_latency"])]),

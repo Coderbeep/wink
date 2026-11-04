@@ -64,7 +64,7 @@ The menu lists chat titles and provides **Open Codex**, **Clear completed**, **L
 
 ## Tracking and privacy
 
-Wink observes the desktop app's existing local socket and uses session-lock filenames to discover background chats. Filenames and quiet time never establish a chat's status. CLI sessions and internal subagents are excluded. The default location is `~/.codex`; `CODEX_HOME` is respected when set in Wink's environment.
+Wink observes the desktop app's existing local socket and uses ownership notifications and session-lock filenames to discover chats. It keeps a chat subscribed while its verified owner reports an active view, so new turns can arrive without waiting for reconciliation. Idle subscriptions otherwise release after a ten-second settling period. Filenames, view interest and quiet time never establish a chat's status. CLI sessions and internal subagents are excluded. The default location is `~/.codex`; `CODEX_HOME` is respected when set in Wink's environment.
 
 Codex can omit a read notification or final state update. Wink therefore reconciles non-idle chats every **five seconds**, checks idle chats every **thirty seconds**, and retries missing owners. Normal events update the display immediately. While Codex is in front and answers are ready, Wink makes at most one additional read-confirmation request per second across all chats. This check stops in the background or when no answers are ready; opening Wink’s menu can also request a confirmation. Entries clear only after Codex reports them read. Missing or incompatible evidence becomes unavailable; one unresponsive chat does not invalidate healthy chats.
 

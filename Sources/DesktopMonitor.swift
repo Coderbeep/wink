@@ -22,6 +22,9 @@ final class DesktopMonitor {
     private var generation = 0
     private var pending: [String: String] = [:]
     private var owners: [String: String] = [:]
+    private var viewInterests: [String: Set<String>] = [:]
+    private var lastOwnerHintAt: [String: TimeInterval] = [:]
+    private var pendingOwnerHints = Set<String>()
     private var discovering = Set<String>()
     private var answeredDiscovery = Set<String>()
     private var candidates = Set<String>()
@@ -151,6 +154,7 @@ final class DesktopMonitor {
         connected = false; client = "uninitialized"; generation += 1
         for id in conversations.keys { conversations[id]?.forgetReadAcknowledgement() }
         pending.removeAll(); owners.removeAll(); discovering.removeAll(); fresh.removeAll()
+        viewInterests.removeAll(); lastOwnerHintAt.removeAll(); pendingOwnerHints.removeAll()
         subscribed.removeAll(); snapshotDeadlines.removeAll(); idleLeases.removeAll()
         initialSnapshots.removeAll(); checkedAt.removeAll(); retryAt.removeAll(); negativeDiscoveryUntil.removeAll(); discoveryProblems.removeAll(); answeredDiscovery.removeAll()
         archived.removeAll(); archiveChecks.removeAll(); readAcknowledgements.removeAll()
@@ -206,6 +210,29 @@ final class DesktopMonitor {
         discovering.insert(id)
         request("thread-owner-discovery", params: ["conversationId": id, "hostId": "local"], version: 1)
     }
+    private func ownerHint(_ id: String) {
+        guard !stopped, !archived.contains(id), !excluded.contains(id) else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now >= (retryAt[id] ?? 0) else { return }
+        if let last = lastOwnerHintAt[id], now - last < 1 {
+            guard owners[id] == nil, pendingOwnerHints.insert(id).inserted else { return }
+            let currentGeneration = generation
+            queue.asyncAfter(deadline: .now() + (1 - (now - last))) {
+                guard self.generation == currentGeneration, self.pendingOwnerHints.remove(id) != nil,
+                      self.owners[id] == nil else { return }
+                self.ownerHint(id)
+            }
+            return
+        }
+        pendingOwnerHints.remove(id)
+        lastOwnerHintAt[id] = now
+        if owners[id] == nil {
+            // Retire the old lookup so its late reply or timeout cannot replace a fresh owner.
+            for (request, thread) in pending where thread == id { pending.removeValue(forKey: request) }
+            discovering.remove(id)
+        }
+        discover(id, hinted: true)
+    }
     private func following(_ id: String, owner: String, value: Bool) {
         if value {
             idleLeases.removeValue(forKey: id)
@@ -231,9 +258,10 @@ final class DesktopMonitor {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { catalogUnavailable = true; return }
         catalogUnavailable = false
         let locks = Set(names.filter { $0.hasSuffix(".lock") }.map { String($0.dropLast(5)) })
-        for id in candidates.subtracting(locks) where owners[id] == nil && conversations[id] == nil && !discovering.contains(id) {
+        for id in candidates.subtracting(locks) where owners[id] == nil && conversations[id] == nil && !discovering.contains(id) && !pendingOwnerHints.contains(id) {
             candidates.remove(id); answeredDiscovery.remove(id); discoveryProblems.remove(id)
             retryAt.removeValue(forKey: id); negativeDiscoveryUntil.removeValue(forKey: id); excluded.remove(id)
+            viewInterests.removeValue(forKey: id); lastOwnerHintAt.removeValue(forKey: id); pendingOwnerHints.remove(id)
         }
         for id in locks where owners[id] == nil { discover(id, hinted: hinted) }
     }
@@ -344,6 +372,11 @@ final class DesktopMonitor {
                 conversations[id]?.forgetReadAcknowledgement()
                 readAcknowledgements.removeValue(forKey: id)
             }
+            for id in viewInterests.keys where viewInterests[id]?.contains(owner) == true {
+                viewInterests[id]?.remove(owner)
+                if viewInterests[id]?.isEmpty == true { viewInterests.removeValue(forKey: id) }
+                releaseWhenIdle(id)
+            }
             publish(); scanLocks(); return
         }
         guard params["hostId"] as? String == "local", let id = params["conversationId"] as? String else { return }
@@ -356,13 +389,30 @@ final class DesktopMonitor {
             else { readAcknowledgements[id] = ProcessInfo.processInfo.systemUptime + 5 }
             publish(); return
         }
-        if method == "thread-stream-following-changed", object["sourceClientId"] as? String != client {
-            if params["following"] as? Bool == true { discover(id, hinted: true) }
+        if method == "thread-stream-following-changed" {
+            guard object["version"] as? Int == 1, UUID(uuidString: id) != nil,
+                  let source = object["sourceClientId"] as? String, !source.isEmpty, source != client,
+                  let following = params["following"] as? Bool, !archived.contains(id), !excluded.contains(id) else { return }
+            if following { viewInterests[id, default: []].insert(source) }
+            else {
+                viewInterests[id]?.remove(source)
+                if viewInterests[id]?.isEmpty == true { viewInterests.removeValue(forKey: id) }
+            }
+            releaseWhenIdle(id)
+            if following { discover(id, hinted: true) }
+            return
+        }
+        if method == "thread-stream-following-status-requested" {
+            guard object["version"] as? Int == 1, UUID(uuidString: id) != nil,
+                  let source = object["sourceClientId"] as? String, !source.isEmpty, source != client,
+                  !archived.contains(id), !excluded.contains(id) else { return }
+            ownerHint(id)
             return
         }
         if method == "thread-archived" {
             if let owner = owners[id] { following(id, owner: owner, value: false) }
             readAcknowledgements.removeValue(forKey: id)
+            viewInterests.removeValue(forKey: id); lastOwnerHintAt.removeValue(forKey: id); pendingOwnerHints.remove(id)
             archived.insert(id); candidates.remove(id); discoveryProblems.remove(id); initialSnapshots.remove(id)
             archiveChecks[id] = ProcessInfo.processInfo.systemUptime + 30
             checkedAt.removeValue(forKey: id)
@@ -382,6 +432,7 @@ final class DesktopMonitor {
                 readAcknowledgements.removeValue(forKey: id)
                 following(id, owner: owner, value: false); owners.removeValue(forKey: id); fresh.remove(id)
                 initialSnapshots.remove(id); discoveryProblems.remove(id); checkedAt.removeValue(forKey: id)
+                viewInterests.removeValue(forKey: id); lastOwnerHintAt.removeValue(forKey: id); pendingOwnerHints.remove(id)
                 excluded.insert(id); conversations.removeValue(forKey: id); publish(); return
             }
             if !initialSnapshots.contains(id), let previous = conversations[id], revision < previous.revision {
@@ -409,6 +460,10 @@ final class DesktopMonitor {
     private func releaseWhenIdle(_ id: String) {
         guard let state = conversations[id], fresh.contains(id) else { return }
         if state.phase == .working || state.phase == .waiting || state.phase == .approval {
+            idleLeases.removeValue(forKey: id); return
+        }
+        // Only the verified owner's UI interest can keep an idle history subscribed.
+        if let owner = owners[id], viewInterests[id]?.contains(owner) == true {
             idleLeases.removeValue(forKey: id); return
         }
         guard idleLeases[id] == nil else { return }
