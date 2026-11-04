@@ -9,6 +9,9 @@ final class DesktopMonitor {
     private var fd: Int32 = -1
     private var reader: DispatchSourceRead?
     private var reconciliation: DispatchSourceTimer?
+    private var readyReadTimer: DispatchSourceTimer?
+    private var codexFrontmost = false
+    private var lastReadyReadCheck: TimeInterval = 0
     private var events: FSEventStreamRef?
     private var buffer = FrameBuffer()
     private var receiveBytes = [UInt8](repeating: 0, count: 65536)
@@ -45,6 +48,40 @@ final class DesktopMonitor {
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
     }
     func start() { queue.async { self.watchFiles(); self.connect() } }
+    func setCodexFrontmost(_ value: Bool) {
+        queue.async {
+            self.codexFrontmost = value
+            self.updateReadyReadTimer()
+            if value { self.checkReadyRead() }
+        }
+    }
+    func refreshReady() { queue.async { self.checkReadyRead() } }
+    private func updateReadyReadTimer() {
+        let needed = !stopped && connected && codexFrontmost && owners.keys.contains {
+            fresh.contains($0) && conversations[$0]?.phase == .ready
+        }
+        guard needed else { readyReadTimer?.cancel(); readyReadTimer = nil; return }
+        guard readyReadTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(50))
+        timer.setEventHandler { [weak self] in
+            guard let self, self.codexFrontmost else { return }
+            self.checkReadyRead()
+        }
+        readyReadTimer = timer
+        timer.resume()
+    }
+    private func checkReadyRead() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard !stopped, connected, now - lastReadyReadCheck >= 0.999 else { return }
+        let id = owners.keys.filter {
+            fresh.contains($0) && conversations[$0]?.phase == .ready && snapshotDeadlines[$0] == nil
+        }.min { (checkedAt[$0] ?? 0) < (checkedAt[$1] ?? 0) }
+        guard let id, let owner = owners[id] else { return }
+        lastReadyReadCheck = now
+        following(id, owner: owner, value: true)
+        readyReadTimer?.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(50))
+    }
     func stop() {
         queue.sync {
             stopped = true
@@ -59,6 +96,7 @@ final class DesktopMonitor {
         }
     }
     private func publish(_ message: String? = nil) {
+        updateReadyReadTimer()
         let sessions = Set(conversations.keys).subtracting(archived).subtracting(excluded).map { id -> DotSession in
             let c = conversations[id]
             return DotSession(id: id, title: c?.title ?? "Checking Codex session…", phase: fresh.contains(id) ? c?.phase ?? .unknown : .unknown)
@@ -105,6 +143,7 @@ final class DesktopMonitor {
     }
     private func closeConnection() {
         reconciliation?.cancel(); reconciliation = nil
+        readyReadTimer?.cancel(); readyReadTimer = nil; lastReadyReadCheck = 0
         if fd >= 0 && client != "uninitialized" {
             for (id, owner) in owners { following(id, owner: owner, value: false) }
         }

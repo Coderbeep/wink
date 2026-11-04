@@ -163,6 +163,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.snapshot = snapshot
             self?.updateStatus()
         }
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(codexActivationChanged(_:)), name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        monitor.setCodexFrontmost(NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.openai.codex")
         updateStatus()
         monitor.start()
     }
@@ -204,8 +206,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         workingIndicator.update(working: hasWorkingSessions, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
 
+    @objc private func codexActivationChanged(_ notification: Notification) {
+        let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+        monitor.setCodexFrontmost(app?.bundleIdentifier == "com.openai.codex")
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
         menuIsOpen = true
+        monitor.refreshReady()
         rebuildMenu()
     }
 

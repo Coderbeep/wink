@@ -17,16 +17,20 @@ def main():
         parser.error("executable does not exist or is not executable: " + str(executable))
     root = Path(__file__).resolve().parent.parent
     with tempfile.TemporaryDirectory(prefix="wink-monitor-", dir="/private/tmp") as scratch:
-        manual = Path(scratch) / "ManualClear"
-        subprocess.run([
-            "xcrun", "swiftc", "-O", "-module-cache-path", "/private/tmp/wink-module-cache",
-            str(root / "Sources/Core.swift"), str(root / "Sources/DesktopMonitor.swift"),
-            str(root / "Tests/Monitor/main.swift"), "-o", str(manual)
-        ], check=True)
+        helpers = {}
+        for name, source in (("manual", "Monitor"), ("read_latency", "ReadLatency")):
+            helpers[name] = Path(scratch) / source
+            subprocess.run([
+                "xcrun", "swiftc", "-O", "-module-cache-path", "/private/tmp/wink-module-cache",
+                str(root / "Sources/Core.swift"), str(root / "Sources/DesktopMonitor.swift"),
+                str(root / "Tests" / source / "main.swift"), "-o", str(helpers[name])
+            ], check=True)
+        manual = helpers["manual"]
         names = ["ipc_check", "input_state_check", "read_state_check", "idle_refresh_check",
                  "reconciliation_check", "read_reconnect_check", "robustness_check", "optimization_check"]
         cases = [(name, [sys.executable, str(root / "Tests" / (name + ".py")), str(executable)]) for name in names]
         cases += [
+            ("read_latency", [sys.executable, str(root / "Tests/read_latency_check.py"), str(helpers["read_latency"])]),
             ("manual_reconnect", [sys.executable, str(root / "Tests/read_reconnect_check.py"), str(manual), "--manual"]),
             ("manual_owner", [sys.executable, str(root / "Tests/read_reconnect_check.py"), str(manual), "--manual", "--owner"])
         ]

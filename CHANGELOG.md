@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Faster removal of read answers while Codex is in front, using globally capped read-confirmation checks that stop when unnecessary.
 - Faster reconnection after a dropped Codex connection, with bounded backoff for repeated failures.
 - Lower CPU work for long chat histories and streamed text updates, with fewer redundant owner lookups and unchanged counter-verification safeguards.
 
