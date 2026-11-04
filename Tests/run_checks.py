@@ -26,10 +26,11 @@ def main():
                 str(root / "Tests" / source / "main.swift"), "-o", str(helpers[name])
             ], check=True)
         manual = helpers["manual"]
-        names = ["ipc_check", "input_state_check", "read_state_check", "idle_refresh_check",
+        names = ["ipc_check", "read_state_check", "idle_refresh_check",
                  "reconciliation_check", "read_reconnect_check", "robustness_check", "optimization_check", "running_start_check"]
         cases = [(name, [sys.executable, str(root / "Tests" / (name + ".py")), str(executable)]) for name in names]
         cases += [
+            ("input_state_check", [sys.executable, str(root / "Tests/input_state_check.py"), str(helpers["read_latency"])]),
             ("read_latency", [sys.executable, str(root / "Tests/read_latency_check.py"), str(helpers["read_latency"])]),
             ("manual_reconnect", [sys.executable, str(root / "Tests/read_reconnect_check.py"), str(manual), "--manual"]),
             ("manual_owner", [sys.executable, str(root / "Tests/read_reconnect_check.py"), str(manual), "--manual", "--owner"])

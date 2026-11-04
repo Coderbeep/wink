@@ -4,7 +4,7 @@ import Darwin
 var finished = false
 let monitor = DesktopMonitor { snapshot in
     let output: [String: Any] = ["connected": snapshot.connected,
-        "sessions": snapshot.sessions.map { ["id": $0.id, "phase": $0.phase.rawValue] },
+        "sessions": snapshot.sessions.map { ["id": $0.id, "title": $0.title, "phase": $0.phase.rawValue] },
         "message": snapshot.message ?? ""]
     if let data = try? JSONSerialization.data(withJSONObject: output), let line = String(data: data, encoding: .utf8) {
         print(line); fflush(stdout)
