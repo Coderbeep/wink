@@ -76,7 +76,7 @@ struct Conversation {
 
     var latest: TurnMetadata? { latestEntityKey.flatMap { turns[$0] } }
     var control: TurnMetadata? {
-        turnOrder.reversed().compactMap { turns[$0] }.first {
+        turnOrder.reversed().lazy.compactMap { turns[$0] }.first {
             $0.id != nil || $0.status != "completed" && $0.status != "failed"
         }
     }

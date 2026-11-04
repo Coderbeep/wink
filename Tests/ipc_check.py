@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory(prefix='codexdot-test-', dir='/private/tmp') as
                     while len(buf) >= 4:
                         n = struct.unpack('<I', buf[:4])[0]
                         if len(buf) < 4+n: break
-                        obj = json.loads(buf[4:4+n]); buf = buf[4+n:]; received.append({**obj, '_test_connection': connection})
+                        obj = json.loads(buf[4:4+n]); buf = buf[4+n:]; received.append({**obj, '_test_connection': connection, '_received_at': time.monotonic()})
                         method = obj.get('method')
                         if obj.get('type') == 'request':
                             assert method in ('initialize', 'thread-owner-discovery'), method
@@ -125,6 +125,8 @@ with tempfile.TemporaryDirectory(prefix='codexdot-test-', dir='/private/tmp') as
     assert sum(x['params']['following'] and x['params']['conversationId'] == ROOT for x in follows) >= 3, 'Resync/reconnect not exercised'
     assert any(not x['params']['following'] for x in follows), 'No unsubscribe cleanup'
     stalled_follows = [x for x in follows if x['_test_connection'] == 2 and x['params']['conversationId'] == ROOT and x['params']['following']]
-    assert 2 <= len(stalled_follows) <= 3, 'Snapshot requests were not coalesced: ' + str(len(stalled_follows))
+    assert len(stalled_follows) >= 2, 'Stalled resnapshot was not exercised'
+    unanswered = stalled_follows[1:]  # The first follow receives the initial valid snapshot.
+    assert all(b['_received_at'] - a['_received_at'] >= 9.5 for a,b in zip(unanswered,unanswered[1:])), 'Overlapping resnapshots postponed the non-postponable deadline'
     assert any(x.get('type') == 'client-discovery-response' for x in received), 'Capability request not declined'
     print('IPC integration checks passed: discovery, fragmented frames, desktop filtering, work/wait/fail/interrupt/ready, resync, disconnect/reconnect, incompatible version, coalesced bounded resync, cleanup')

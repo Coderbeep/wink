@@ -11,6 +11,8 @@ final class DesktopMonitor {
     private var reconciliation: DispatchSourceTimer?
     private var events: FSEventStreamRef?
     private var buffer = FrameBuffer()
+    private var receiveBytes = [UInt8](repeating: 0, count: 65536)
+    private var reconnectDelay: TimeInterval = 0.5
     private var client = "uninitialized"
     private var connected = false
     private var stopped = false
@@ -32,6 +34,7 @@ final class DesktopMonitor {
     private var conversations: [String: Conversation] = [:]
     private var checkedAt: [String: TimeInterval] = [:]
     private var retryAt: [String: TimeInterval] = [:]
+    private var negativeDiscoveryUntil: [String: TimeInterval] = [:]
     private var readAcknowledgements: [String: TimeInterval] = [:]
     private var catalogUnavailable = false
     private var lastPresentation = ""
@@ -110,13 +113,15 @@ final class DesktopMonitor {
         for id in conversations.keys { conversations[id]?.forgetReadAcknowledgement() }
         pending.removeAll(); owners.removeAll(); discovering.removeAll(); fresh.removeAll()
         subscribed.removeAll(); snapshotDeadlines.removeAll(); idleLeases.removeAll()
-        initialSnapshots.removeAll(); checkedAt.removeAll(); retryAt.removeAll(); discoveryProblems.removeAll(); answeredDiscovery.removeAll()
+        initialSnapshots.removeAll(); checkedAt.removeAll(); retryAt.removeAll(); negativeDiscoveryUntil.removeAll(); discoveryProblems.removeAll(); answeredDiscovery.removeAll()
         archived.removeAll(); archiveChecks.removeAll(); readAcknowledgements.removeAll()
     }
     private func failed(_ message: String) {
         closeConnection(); publish(message)
         let attempt = generation
-        queue.asyncAfter(deadline: .now() + 5) {
+        let delay = reconnectDelay
+        reconnectDelay = min(reconnectDelay * 2, 5)
+        queue.asyncAfter(deadline: .now() + delay) {
             if !self.stopped && self.generation == attempt { self.connect() }
         }
     }
@@ -148,10 +153,12 @@ final class DesktopMonitor {
             }
         }
     }
-    private func discover(_ id: String) {
+    private func discover(_ id: String, hinted: Bool = false) {
         guard UUID(uuidString: id) != nil, !excluded.contains(id), !archived.contains(id) else { return }
         candidates.insert(id)
-        guard connected, ProcessInfo.processInfo.systemUptime >= (retryAt[id] ?? 0) else { return }
+        if hinted { negativeDiscoveryUntil.removeValue(forKey: id) }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard connected, now >= (retryAt[id] ?? 0), now >= (negativeDiscoveryUntil[id] ?? 0) else { return }
         if let owner = owners[id] {
             if !subscribed.contains(id) || idleLeases[id] != nil { fresh.remove(id); following(id, owner: owner, value: true); publish() }
             return
@@ -180,16 +187,16 @@ final class DesktopMonitor {
                   "method": "thread-stream-following-changed", "version": 1,
                   "params": ["conversationId": id, "hostId": "local", "following": value]])
     }
-    private func scanLocks() {
+    private func scanLocks(hinted: Bool = false) {
         let directory = home.appendingPathComponent("thread-writer-locks")
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { catalogUnavailable = true; return }
         catalogUnavailable = false
         let locks = Set(names.filter { $0.hasSuffix(".lock") }.map { String($0.dropLast(5)) })
         for id in candidates.subtracting(locks) where owners[id] == nil && conversations[id] == nil && !discovering.contains(id) {
             candidates.remove(id); answeredDiscovery.remove(id); discoveryProblems.remove(id)
-            retryAt.removeValue(forKey: id); excluded.remove(id)
+            retryAt.removeValue(forKey: id); negativeDiscoveryUntil.removeValue(forKey: id); excluded.remove(id)
         }
-        for id in locks where owners[id] == nil { discover(id) }
+        for id in locks where owners[id] == nil { discover(id, hinted: hinted) }
     }
     private func startReconciliation() {
         let currentGeneration = generation
@@ -232,12 +239,12 @@ final class DesktopMonitor {
         publish()
     }
     private func read() {
-        var bytes = [UInt8](repeating: 0, count: 65536)
-        let n = recv(fd, &bytes, bytes.count, 0)
+        let socketFD = fd
+        let n = receiveBytes.withUnsafeMutableBytes { recv(socketFD, $0.baseAddress, $0.count, 0) }
         if n < 0 && errno == EINTR { return }
         guard n > 0 else { failed("Codex disconnected. Waiting to reconnect…"); return }
         do {
-            for data in try buffer.append(Data(bytes.prefix(n))) {
+            for data in try buffer.append(Data(receiveBytes.prefix(n))) {
                 guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw MonitorError.invalidFrame }
                 do { try handle(object) }
                 catch {
@@ -263,16 +270,24 @@ final class DesktopMonitor {
                 let waiting = candidates
                 for id in waiting { discover(id) }
                 scanLocks(); startReconciliation(); publish()
+                let stableGeneration = generation
+                queue.asyncAfter(deadline: .now() + 10) {
+                    if self.connected && self.generation == stableGeneration { self.reconnectDelay = 0.5 }
+                }
             } else {
                 discovering.remove(requested)
                 answeredDiscovery.insert(requested)
                 guard !excluded.contains(requested), !archived.contains(requested) else { return }
                 if object["resultType"] as? String == "success", let owner = object["handledByClientId"] as? String {
-                    discoveryProblems.remove(requested)
+                    discoveryProblems.remove(requested); negativeDiscoveryUntil.removeValue(forKey: requested)
                     owners[requested] = owner; initialSnapshots.insert(requested)
                     following(requested, owner: owner, value: true)
-                } else if conversations[requested]?.phase == .idle {
-                    conversations.removeValue(forKey: requested)
+                } else {
+                    if conversations[requested]?.phase == .idle { conversations.removeValue(forKey: requested) }
+                    // Native negatives can arrive on a reconciliation tick; avoid immediately asking again.
+                    if object["error"] as? String == "no-client-found", conversations[requested] == nil {
+                        negativeDiscoveryUntil[requested] = ProcessInfo.processInfo.systemUptime + 1
+                    }
                 }
                 publish()
             }
@@ -281,7 +296,7 @@ final class DesktopMonitor {
         guard type == "broadcast", let method = object["method"] as? String else { return }
         if method == "ipc-connection-reset" { failed("Codex reset its connection. Reconnecting…"); return }
         guard let params = object["params"] as? [String: Any] else { return }
-        if method == "client-status-changed", params["status"] as? String == "connected" { scanLocks(); return }
+        if method == "client-status-changed", params["status"] as? String == "connected" { scanLocks(hinted: true); return }
         if method == "client-status-changed", params["status"] as? String == "disconnected", let owner = params["clientId"] as? String {
             for (id, value) in owners where value == owner {
                 owners.removeValue(forKey: id); fresh.remove(id); subscribed.remove(id)
@@ -303,7 +318,7 @@ final class DesktopMonitor {
             publish(); return
         }
         if method == "thread-stream-following-changed", object["sourceClientId"] as? String != client {
-            if params["following"] as? Bool == true { discover(id) }
+            if params["following"] as? Bool == true { discover(id, hinted: true) }
             return
         }
         if method == "thread-archived" {
@@ -320,6 +335,7 @@ final class DesktopMonitor {
         }
         guard method == "thread-stream-state-changed", subscribed.contains(id), let owner = owners[id], object["sourceClientId"] as? String == owner else { return }
         guard object["version"] as? Int == 11, let change = params["change"] as? [String: Any], let revision = change["revision"] as? Int else { throw MonitorError.incompatibleState }
+        var presentationChanged = true
         if change["type"] as? String == "snapshot", let state = change["conversationState"] as? [String: Any] {
             guard state["id"] as? String == id else { throw MonitorError.incompatibleState }
             guard Conversation.desktop(state) else {
@@ -342,11 +358,14 @@ final class DesktopMonitor {
             if Conversation.attentionNeedsSnapshot(patches, pending: conversations[id]?.pendingAttention != nil) {
                 fresh.remove(id); following(id, owner: owner, value: true); publish(); return
             }
-            do { try conversations[id]?.patches(patches, base: base, revision: revision) }
-            catch { fresh.remove(id); following(id, owner: owner, value: true) }
+            let previousTitle = conversations[id]?.title, previousPhase = conversations[id]?.phase
+            do {
+                try conversations[id]?.patches(patches, base: base, revision: revision)
+                presentationChanged = previousTitle != conversations[id]?.title || previousPhase != conversations[id]?.phase
+            } catch { fresh.remove(id); following(id, owner: owner, value: true) }
         } else { throw MonitorError.incompatibleState }
         releaseWhenIdle(id)
-        publish()
+        if presentationChanged { publish() }
     }
     private func releaseWhenIdle(_ id: String) {
         guard let state = conversations[id], fresh.contains(id) else { return }
@@ -370,11 +389,11 @@ final class DesktopMonitor {
             let monitor = Unmanaged<DesktopMonitor>.fromOpaque(info).takeUnretainedValue()
             let changed = unsafeBitCast(paths, to: NSArray.self) as? [String] ?? []
             for (index, path) in changed.prefix(count).enumerated() {
-                if flags[index] & FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped) != 0 { monitor.scanLocks() }
+                if flags[index] & FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped) != 0 { monitor.scanLocks(hinted: true) }
                 let name = URL(fileURLWithPath: path).lastPathComponent
-                if name.hasSuffix(".jsonl") { monitor.discover(String(name.dropLast(6).suffix(36))) }
-                else if name.hasSuffix(".lock") { monitor.discover(String(name.dropLast(5))) }
-                else if path.hasSuffix("thread-writer-locks") { monitor.scanLocks() }
+                if name.hasSuffix(".jsonl") { monitor.discover(String(name.dropLast(6).suffix(36)), hinted: true) }
+                else if name.hasSuffix(".lock") { monitor.discover(String(name.dropLast(5)), hinted: true) }
+                else if path.hasSuffix("thread-writer-locks") { monitor.scanLocks(hinted: true) }
             }
         }, &context, paths, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.5,
         FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents))

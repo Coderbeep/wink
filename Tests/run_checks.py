@@ -24,7 +24,7 @@ def main():
             str(root / "Tests/Monitor/main.swift"), "-o", str(manual)
         ], check=True)
         names = ["ipc_check", "input_state_check", "read_state_check", "idle_refresh_check",
-                 "reconciliation_check", "read_reconnect_check", "robustness_check"]
+                 "reconciliation_check", "read_reconnect_check", "robustness_check", "optimization_check"]
         cases = [(name, [sys.executable, str(root / "Tests" / (name + ".py")), str(executable)]) for name in names]
         cases += [
             ("manual_reconnect", [sys.executable, str(root / "Tests/read_reconnect_check.py"), str(manual), "--manual"]),

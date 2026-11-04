@@ -1,11 +1,12 @@
 """Reconnect trusts canonical unread after an acknowledgement event was missed offline."""
 import json, os, pathlib, socket, struct, subprocess, sys, tempfile, threading, time
+from snapshot_helpers import latest_phase
 
 exe = pathlib.Path(sys.argv[1]).resolve()
 manual = '--manual' in sys.argv[2:]
 replace_owner = '--owner' in sys.argv[2:]
 A, B = ['10000000-0000-4000-8000-00000000000' + str(n) for n in (1, 2)]
-outputs, errors = [], []
+outputs, errors, recovery_events = [], [], []
 stop = threading.Event()
 
 def frame(obj):
@@ -98,6 +99,7 @@ with tempfile.TemporaryDirectory(prefix='dot-read-reconnect-', dir='/private/tmp
                         snapshot(B)  # Harness manually clears B while its old turn-1 read marker remains.
                     elif stage == 4 and elapsed > 3:
                         stage = 5
+                        recovery_events.append(time.monotonic())
                         if replace_owner:
                             owner = 'replacement-owner'
                             conn.sendall(frame({'type': 'broadcast', 'sourceClientId': 'desktop-coordinator',
@@ -113,9 +115,9 @@ with tempfile.TemporaryDirectory(prefix='dot-read-reconnect-', dir='/private/tmp
 
     worker = threading.Thread(target=serve, daemon=True)
     worker.start()
+    started = time.monotonic()
     proc = subprocess.Popen([str(exe), '--probe', '11'], env={**os.environ, 'CODEX_HOME': tmp},
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    started = time.monotonic()
     for line in proc.stdout:
         outputs.append((time.monotonic() - started, json.loads(line)))
     proc.wait(timeout=2)
@@ -133,10 +135,11 @@ with tempfile.TemporaryDirectory(prefix='dot-read-reconnect-', dir='/private/tmp
     assert 'ready' not in phases(A, 1, 3), 'Stale same-turn snapshot resurrected acknowledged answer'
     if not replace_owner:
         assert any(not obj['connected'] for _, obj in outputs), 'Disconnect was not exercised'
-    resumed = 3 if replace_owner else 7.5
-    assert 'ready' in phases(A, resumed, 11), 'Fresh unread on reconnect remained suppressed by an old acknowledgement'
+    resumed = recovery_events[0] - started
+    deadline = min(resumed + 6, 10.9)
+    assert latest_phase(outputs,A,deadline) == 'ready', 'Fresh unread on reconnect remained suppressed by an old acknowledgement'
     if manual:
         assert 'idle' in phases(B, 2, 3), 'Harness failed to manually clear newer turn'
-        assert 'idle' in phases(B, resumed, 11), 'Newer turn manual clear was lost on reconnect'
+        assert latest_phase(outputs,B,deadline) == 'idle', 'Newer turn manual clear was lost on reconnect'
         assert 'ready' not in phases(B, resumed, 11), 'Rebasing an older read marker rearmed manually cleared newer turn'
     print(('Read owner replacement passed' if replace_owner else 'Read reconnect passed') + ': stale acknowledgement rebased' + (', newer-turn manual clear preserved' if manual else ''))

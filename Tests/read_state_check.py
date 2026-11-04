@@ -1,8 +1,9 @@
 """Verify native read-state synchronization, scoping, and new-answer rearming."""
 import json, os, pathlib, socket, struct, subprocess, sys, tempfile, threading, time
+from snapshot_helpers import latest_phase
 EXE = pathlib.Path(sys.argv[1]).resolve()
 A, B = ['10000000-0000-4000-8000-00000000000'+str(n) for n in (1,2)]
-trace, outputs, errors = [], [], []
+trace, outputs, errors, read_events = [], [], [], []
 stop = threading.Event()
 def frame(obj):
     data = json.dumps(obj).encode()
@@ -30,6 +31,7 @@ with tempfile.TemporaryDirectory(prefix='dot-read-', dir='/private/tmp') as tmp:
                         'params':{'hostId':'local','conversationId':thread,'change':{'type':'snapshot','revision':revisions[thread],'conversationState':states[thread]}}}))
                 def read(thread,value,host='local'):
                     trace.append(('read',thread,value,connection))
+                    read_events.append((time.monotonic(),thread,value,connection))
                     conn.sendall(frame({'type':'broadcast','sourceClientId':'desktop-coordinator','method':'thread-read-state-changed','version':3,
                         'params':{'hostId':host,'conversationId':thread,'hasUnreadTurn':value,'context':{'identity':{},'executionHostKey':'fixture'}}}))
                 while not stop.is_set():
@@ -87,8 +89,8 @@ with tempfile.TemporaryDirectory(prefix='dot-read-', dir='/private/tmp') as tmp:
         except Exception as exc:
             if not stop.is_set():errors.append(repr(exc))
     thread=threading.Thread(target=serve,daemon=True);thread.start()
-    proc=subprocess.Popen([str(EXE),'--probe','23'],env={**os.environ,'CODEX_HOME':tmp},stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     started=time.monotonic()
+    proc=subprocess.Popen([str(EXE),'--probe','23'],env={**os.environ,'CODEX_HOME':tmp},stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     for line in proc.stdout: outputs.append((time.monotonic()-started,json.loads(line)))
     proc.wait(timeout=3);stderr=proc.stderr.read();stop.set();thread.join(timeout=1);server.close()
     assert proc.returncode==0,stderr
@@ -101,7 +103,8 @@ with tempfile.TemporaryDirectory(prefix='dot-read-', dir='/private/tmp') as tmp:
     assert 'ready' in phases(B,11,13),'Remote or other-thread read changed the wrong entry'
     assert 'working' in phases(A,13,14),'Read state suppressed working state'
     assert 'ready' in phases(A,14,15.2),'New completed unread answer did not rearm'
-    assert 'idle' in phases(A,20,21.2),'Reconnect ignored canonical read state'
-    assert 'ready' in phases(A,21,23),'Native mark-unread event did not rearm completed answer'
+    unread_at = next(t - started for t,thread,value,connection in read_events if thread == A and value and connection == 1)
+    assert latest_phase(outputs,A,unread_at - .01) == 'idle','Reconnect ignored canonical read state'
+    assert 'ready' in phases(A,unread_at,unread_at + 1),'Native mark-unread event did not rearm completed answer'
     assert any(not obj['connected'] for _,obj in outputs),'Reconnect was not exercised'
     print('Read-state checks passed: native clear, nonowner source, stale snapshot, scope, new answer, reconnect, mark unread')

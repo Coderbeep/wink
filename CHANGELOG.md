@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- Faster reconnection after a dropped Codex connection, with bounded backoff for repeated failures.
+- Lower CPU work for long chat histories and streamed text updates, with fewer redundant owner lookups and unchanged counter-verification safeguards.
+
 ## 0.1.6 — prepared for the initial public release
 
 Publication is pending. Earlier version numbers were local development builds, not previous GitHub releases.
