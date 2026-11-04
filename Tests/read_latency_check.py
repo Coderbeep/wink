@@ -28,7 +28,7 @@ def run(exe, duration, states, serve):
     stop = threading.Event()
     errors, outputs = [], []
     launched = threading.Event()
-    proc = None
+    proc = controller = None
     with tempfile.TemporaryDirectory(prefix='wink-read-latency-', dir='/private/tmp') as tmp:
         home = pathlib.Path(tmp)
         for folder in ('ipc', 'sessions', 'thread-writer-locks'):
@@ -45,19 +45,34 @@ def run(exe, duration, states, serve):
             try:
                 with accept(server, stop) as conn:
                     serve(conn, stop, command)
+                    assert stop.is_set(), "Fixture connection ended before measurement completed"
             except Exception as error:
-                if not stop.is_set():
-                    errors.append(repr(error))
+                errors.append(repr(error))
         worker_thread = threading.Thread(target=worker, daemon=True)
         worker_thread.start()
+        def finish():
+            if stop.wait(duration):
+                return
+            stop.set()
+            try:
+                worker_thread.join(timeout=3)
+                assert not worker_thread.is_alive(), 'Fixture did not stop before finishing probe'
+                command('finish')
+            except Exception as error:
+                errors.append(repr(error))
         try:
-            proc = subprocess.Popen([str(exe), '--probe', str(duration)],
+            # The fixture ends measurement and joins its responder before closing the probe.
+            proc = subprocess.Popen([str(exe), '--probe', str(duration + 10)],
                 env={**os.environ, 'CODEX_HOME': tmp}, stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             launched.set()
+            controller = threading.Thread(target=finish, daemon=True)
+            controller.start()
             for line in proc.stdout:
                 outputs.append((time.monotonic(), json.loads(line)))
             proc.wait(timeout=3)
+            controller.join(timeout=3)
+            assert not controller.is_alive(), "Fixture controller did not stop"
             assert proc.returncode == 0, proc.stderr.read()
             assert not errors, errors
         finally:
@@ -67,6 +82,8 @@ def run(exe, duration, states, serve):
                 proc.wait(timeout=3)
             server.close()
             worker_thread.join(timeout=3)
+            if controller is not None:
+                controller.join(timeout=3)
         assert not worker_thread.is_alive(), 'Fixture did not stop'
     return outputs
 
