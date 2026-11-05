@@ -6,6 +6,7 @@ final class DesktopMonitor {
     private let queue = DispatchQueue(label: "local.codexdot.monitor", qos: .utility, autoreleaseFrequency: .workItem)
     private let onChange: (DotSnapshot) -> Void
     private let home: URL
+    private let threadCatalog: LocalThreadCatalog
     private var fd: Int32 = -1
     private var reader: DispatchSourceRead?
     private var reconciliation: DispatchSourceTimer?
@@ -49,6 +50,7 @@ final class DesktopMonitor {
         self.onChange = onChange
         home = ProcessInfo.processInfo.environment["CODEX_HOME"].map { URL(fileURLWithPath: $0) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
+        threadCatalog = LocalThreadCatalog(home: home)
     }
     func start() { queue.async { self.watchFiles(); self.connect() } }
     func setCodexFrontmost(_ value: Bool) {
@@ -203,6 +205,7 @@ final class DesktopMonitor {
         let now = ProcessInfo.processInfo.systemUptime
         guard connected, now >= (retryAt[id] ?? 0), now >= (negativeDiscoveryUntil[id] ?? 0) else { return }
         if let owner = owners[id] {
+            if fresh.contains(id) { threadCatalog.remember(id) }
             if !subscribed.contains(id) || idleLeases[id] != nil { fresh.remove(id); following(id, owner: owner, value: true); publish() }
             return
         }
@@ -272,6 +275,7 @@ final class DesktopMonitor {
         timer.setEventHandler { [weak self] in
             guard let self, self.connected, self.generation == currentGeneration else { return }
             self.scanLocks()
+            for id in self.fresh where self.conversations[id] != nil { self.threadCatalog.remember(id) }
             let now = ProcessInfo.processInfo.systemUptime
             // Read broadcasts have no revision; bound suppression before re-reading the owner.
             for (id, deadline) in self.readAcknowledgements where now >= deadline {
@@ -304,6 +308,18 @@ final class DesktopMonitor {
         readAcknowledgements.removeValue(forKey: id)
         retryAt[id] = ProcessInfo.processInfo.systemUptime + 5
         publish()
+    }
+    private func forgetObservation(_ id: String) {
+        // Only Wink's cached observation is removed; native activity can rediscover the UUID.
+        for (request, thread) in pending where thread == id { pending.removeValue(forKey: request) }
+        conversations.removeValue(forKey: id); owners.removeValue(forKey: id)
+        candidates.remove(id); discovering.remove(id); answeredDiscovery.remove(id)
+        fresh.remove(id); subscribed.remove(id); initialSnapshots.remove(id); discoveryProblems.remove(id)
+        snapshotDeadlines.removeValue(forKey: id); idleLeases.removeValue(forKey: id)
+        readAcknowledgements.removeValue(forKey: id)
+        viewInterests.removeValue(forKey: id); lastOwnerHintAt.removeValue(forKey: id); pendingOwnerHints.remove(id)
+        checkedAt.removeValue(forKey: id); retryAt.removeValue(forKey: id); negativeDiscoveryUntil.removeValue(forKey: id)
+        archiveChecks.removeValue(forKey: id); threadCatalog.forget(id)
     }
     private func read() {
         let socketFD = fd
@@ -350,7 +366,12 @@ final class DesktopMonitor {
                     owners[requested] = owner; initialSnapshots.insert(requested)
                     following(requested, owner: owner, value: true)
                 } else {
-                    if conversations[requested]?.phase == .idle { conversations.removeValue(forKey: requested) }
+                    if conversations[requested]?.phase == .idle { conversations.removeValue(forKey: requested); threadCatalog.forget(requested) }
+                    if object["resultType"] as? String == "error", object["error"] as? String == "no-client-found", connected,
+                       conversations[requested] != nil, owners[requested] == nil, !fresh.contains(requested),
+                       !pendingOwnerHints.contains(requested), threadCatalog.isOrphan(requested) {
+                        forgetObservation(requested); publish(); return
+                    }
                     // Native negatives can arrive on a reconciliation tick; avoid immediately asking again.
                     if object["error"] as? String == "no-client-found", conversations[requested] == nil {
                         negativeDiscoveryUntil[requested] = ProcessInfo.processInfo.systemUptime + 1
@@ -416,7 +437,7 @@ final class DesktopMonitor {
             archived.insert(id); candidates.remove(id); discoveryProblems.remove(id); initialSnapshots.remove(id)
             archiveChecks[id] = ProcessInfo.processInfo.systemUptime + 30
             checkedAt.removeValue(forKey: id)
-            owners.removeValue(forKey: id); fresh.remove(id); conversations.removeValue(forKey: id); publish(); return
+            owners.removeValue(forKey: id); fresh.remove(id); conversations.removeValue(forKey: id); threadCatalog.forget(id); publish(); return
         }
         if method == "thread-unarchived" {
             guard object["version"] as? Int == 1, UUID(uuidString: id) != nil else { throw MonitorError.incompatibleState }
@@ -433,7 +454,7 @@ final class DesktopMonitor {
                 following(id, owner: owner, value: false); owners.removeValue(forKey: id); fresh.remove(id)
                 initialSnapshots.remove(id); discoveryProblems.remove(id); checkedAt.removeValue(forKey: id)
                 viewInterests.removeValue(forKey: id); lastOwnerHintAt.removeValue(forKey: id); pendingOwnerHints.remove(id)
-                excluded.insert(id); conversations.removeValue(forKey: id); publish(); return
+                excluded.insert(id); conversations.removeValue(forKey: id); threadCatalog.forget(id); publish(); return
             }
             if !initialSnapshots.contains(id), let previous = conversations[id], revision < previous.revision {
                 invalidateOwner(id); return
@@ -443,6 +464,7 @@ final class DesktopMonitor {
             retryAt.removeValue(forKey: id)
             checkedAt[id] = ProcessInfo.processInfo.systemUptime
             fresh.insert(id)
+            threadCatalog.remember(id)
         } else if change["type"] as? String == "patches", let patches = change["patches"] as? [[String: Any]], let base = change["baseRevision"] as? Int {
             guard fresh.contains(id) else { following(id, owner: owner, value: true); return }
             if Conversation.attentionNeedsSnapshot(patches, pending: conversations[id]?.pendingAttention != nil) {

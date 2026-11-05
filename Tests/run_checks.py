@@ -18,11 +18,12 @@ def main():
     root = Path(__file__).resolve().parent.parent
     with tempfile.TemporaryDirectory(prefix="wink-monitor-", dir="/private/tmp") as scratch:
         helpers = {}
-        for name, source in (("manual", "Monitor"), ("read_latency", "ReadLatency")):
+        for name, source in (("manual", "Monitor"), ("read_latency", "ReadLatency"), ("catalog", "Catalog")):
             helpers[name] = Path(scratch) / source
             subprocess.run([
                 "xcrun", "swiftc", "-O", "-module-cache-path", "/private/tmp/wink-module-cache",
-                str(root / "Sources/Core.swift"), str(root / "Sources/DesktopMonitor.swift"),
+                str(root / "Sources/Core.swift"), str(root / "Sources/LocalThreadCatalog.swift"),
+                str(root / "Sources/DesktopMonitor.swift"),
                 str(root / "Tests" / source / "main.swift"), "-o", str(helpers[name])
             ], check=True)
         manual = helpers["manual"]
@@ -30,6 +31,7 @@ def main():
                  "reconciliation_check", "read_reconnect_check", "robustness_check", "optimization_check", "running_start_check"]
         cases = [(name, [sys.executable, str(root / "Tests" / (name + ".py")), str(executable)]) for name in names]
         cases += [
+            ("catalog", [sys.executable, str(root / "Tests/catalog_check.py"), str(helpers["catalog"])]),
             ("input_state_check", [sys.executable, str(root / "Tests/input_state_check.py"), str(helpers["read_latency"])]),
             ("read_latency", [sys.executable, str(root / "Tests/read_latency_check.py"), str(helpers["read_latency"])]),
             ("manual_reconnect", [sys.executable, str(root / "Tests/read_reconnect_check.py"), str(manual), "--manual"]),

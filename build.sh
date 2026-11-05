@@ -6,6 +6,7 @@ mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 xcrun swiftc -O -target arm64-apple-macosx13.0 \
     -module-cache-path "${TMPDIR:-/tmp}/wink-module-cache" \
     "$project_dir/Sources/Core.swift" \
+    "$project_dir/Sources/LocalThreadCatalog.swift" \
     "$project_dir/Sources/DesktopMonitor.swift" \
     "$project_dir/Sources/main.swift" \
     -o "$app_dir/Contents/MacOS/Wink.new"
