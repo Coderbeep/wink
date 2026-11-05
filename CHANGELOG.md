@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Removed stale unavailable entries for deleted chats when prior local metadata and missing history files confirm safe cache cleanup; temporary owner loss remains recoverable.
 - Delayed running counts when creating chats or starting another turn in an open chat, with bounded owner-discovery retries and subscriptions that release after the owner closes its view.
 
 ### Changed

@@ -32,6 +32,7 @@ def main():
         cases = [(name, [sys.executable, str(root / "Tests" / (name + ".py")), str(executable)]) for name in names]
         cases += [
             ("catalog", [sys.executable, str(root / "Tests/catalog_check.py"), str(helpers["catalog"])]),
+            ("orphan_cleanup", [sys.executable, str(root / "Tests/orphan_cleanup_check.py"), str(helpers["read_latency"])]),
             ("input_state_check", [sys.executable, str(root / "Tests/input_state_check.py"), str(helpers["read_latency"])]),
             ("read_latency", [sys.executable, str(root / "Tests/read_latency_check.py"), str(helpers["read_latency"])]),
             ("manual_reconnect", [sys.executable, str(root / "Tests/read_reconnect_check.py"), str(manual), "--manual"]),
